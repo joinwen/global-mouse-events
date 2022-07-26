@@ -80,11 +80,11 @@ void onMainThread(Napi::Env env, Napi::Function function, MouseEventContext *pMo
 }
 
 LRESULT CALLBACK HookCallback(int nCode, WPARAM wParam, LPARAM lParam) {
-    MSLLHOOKSTRUCT *data = (MSLLHOOKSTRUCT *)lParam;
 
     // If not WM_MOUSEMOVE or WM_MOUSEMOVE has been requested, process event
     if(!(wParam == WM_MOUSEMOVE && !captureMouseMove)) {
         // Prepare data to be processed
+        MSLLHOOKSTRUCT *data = (MSLLHOOKSTRUCT *)lParam;
         auto pMouseEvent = new MouseEventContext();
         pMouseEvent->nCode = nCode;
         pMouseEvent->wParam = wParam;
@@ -97,17 +97,14 @@ LRESULT CALLBACK HookCallback(int nCode, WPARAM wParam, LPARAM lParam) {
     }
 
     // Let Windows continue with this event as normal
-    return CallNextHookEx(_hook, nCode, wParam, lParam);
+    return CallNextHookEx(NULL, nCode, wParam, lParam);
 }
 
 DWORD WINAPI MouseHookThread(LPVOID lpParam) {
     MSG msg;
     _hook = SetWindowsHookEx(WH_MOUSE_LL, HookCallback, NULL, 0);
 
-    while (GetMessage(&msg, NULL, 0, 0) > 0) {
-        TranslateMessage(&msg);
-        DispatchMessage(&msg);
-    }
+    while (GetMessage(&msg, NULL, 0, 0) > 0) { }
 
     _tsfn.Release();
     return 0;
