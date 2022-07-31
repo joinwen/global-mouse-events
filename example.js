@@ -1,7 +1,5 @@
 const mouseEvents = require("./index");
 
-let paused = false;
-
 mouseEvents.on("mouseup", data => {
   console.log(data);
 });
@@ -19,20 +17,18 @@ mouseEvents.on("mousewheel", data => {
 });
 
 setInterval(() => {
-  if (!paused) {
+  if (!mouseEvents.getPaused()) {
     console.error("Still listening...");
   }
 }, 5000);
 
 process.on("SIGBREAK", () => {
-  if (paused) {
+  if (mouseEvents.getPaused()) {
     console.error("resuming mouse events");
     mouseEvents.resumeMouseEvents();
-    paused = false;
   } else {
     console.error("pausing mouse events");
     mouseEvents.pauseMouseEvents();
-    paused = true;
   }
 });
 
