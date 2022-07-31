@@ -1,6 +1,7 @@
 "use strict";
 const { EventEmitter } = require("events");
 const addon = require("bindings")("global_mouse_events");
+let paused = true;
 
 class MouseEvents extends EventEmitter {
     constructor() {
@@ -55,11 +56,19 @@ class MouseEvents extends EventEmitter {
         });
     }
 
+    getPaused() {
+        return paused;
+    }
+
     pauseMouseEvents() {
+        if(paused) return false;
+        paused = true;
         return addon.pauseMouseEvents();
     }
 
     resumeMouseEvents() {
+        if(!paused) return false;
+        paused = false;
         return addon.resumeMouseEvents();
     }
 }
