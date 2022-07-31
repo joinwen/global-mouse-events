@@ -34,6 +34,9 @@ class MouseEvents extends EventEmitter {
                     }
                     this.emit(event, payload);
                 });
+                if (createdListener) {
+                    this.resumeMouseEvents();
+                }
             } else {
                 return;
             }

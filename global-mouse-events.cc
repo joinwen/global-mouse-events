@@ -7,10 +7,12 @@
 Napi::ThreadSafeFunction _tsfn;
 HANDLE _hThread;
 std::atomic_bool captureMouseMove = false;
+// PostThreadMessage races with the actual thread; we'll get a thread ID
+// and won't be able to post to it because it's "invalid" during the early
+// lifecycle of the thread. To ensure that immediate pauses don't get dropped,
+// we'll use this flag instead of distinct message IDs.
+std::atomic_bool installEventHook = false;
 DWORD dwThreadID = 0;
-
-const DWORD pauseMessageID = WM_USER;
-const DWORD resumeMessageID = WM_USER + 1;
 
 struct MouseEventContext {
     public:
@@ -106,16 +108,17 @@ LRESULT CALLBACK HookCallback(int nCode, WPARAM wParam, LPARAM lParam) {
 
 DWORD WINAPI MouseHookThread(LPVOID lpParam) {
     MSG msg;
-    HHOOK _hook = SetWindowsHookEx(WH_MOUSE_LL, HookCallback, NULL, 0);
+    HHOOK _hook = installEventHook.load() ? SetWindowsHookEx(WH_MOUSE_LL, HookCallback, NULL, 0) : NULL;
 
     while (GetMessage(&msg, NULL, 0, 0) > 0) {
-        if (msg.message == pauseMessageID && _hook != NULL) {
+        if (msg.message != WM_USER) continue;
+        if (!installEventHook.load() && _hook != NULL) {
             if (!UnhookWindowsHookEx(_hook)) {
                 _hook = NULL;
                 break;
             }
             _hook = NULL;
-        } else if (msg.message == resumeMessageID && _hook == NULL) {
+        } else if (installEventHook.load() && _hook == NULL) {
             _hook = SetWindowsHookEx(WH_MOUSE_LL, HookCallback, NULL, 0);
         }
     }
@@ -150,7 +153,8 @@ void disableMouseMove(const Napi::CallbackInfo &info) {
 Napi::Boolean pauseMouseEvents(const Napi::CallbackInfo &info) {
     BOOL bDidPost = FALSE;
     if (dwThreadID != 0) {
-        bDidPost = PostThreadMessageW(dwThreadID, pauseMessageID, NULL, NULL);
+        installEventHook = false;
+        bDidPost = PostThreadMessageW(dwThreadID, WM_USER, NULL, NULL);
     }
     return Napi::Boolean::New(info.Env(), bDidPost);
 }
@@ -158,7 +162,8 @@ Napi::Boolean pauseMouseEvents(const Napi::CallbackInfo &info) {
 Napi::Boolean resumeMouseEvents(const Napi::CallbackInfo &info) {
     BOOL bDidPost = FALSE;
     if (dwThreadID != 0) {
-        bDidPost = PostThreadMessageW(dwThreadID, resumeMessageID, NULL, NULL);
+        installEventHook = true;
+        bDidPost = PostThreadMessageW(dwThreadID, WM_USER, NULL, NULL);
     }
     return Napi::Boolean::New(info.Env(), bDidPost);
 }
