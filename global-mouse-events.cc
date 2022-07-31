@@ -2,11 +2,17 @@
 #include <windows.h>
 #include <string>
 #include <iostream>
+#include <atomic>
 
-HHOOK _hook;
 Napi::ThreadSafeFunction _tsfn;
 HANDLE _hThread;
-boolean captureMouseMove = false;
+std::atomic_bool captureMouseMove = false;
+// PostThreadMessage races with the actual thread; we'll get a thread ID
+// and won't be able to post to it because it's "invalid" during the early
+// lifecycle of the thread. To ensure that immediate pauses don't get dropped,
+// we'll use this flag instead of distinct message IDs.
+std::atomic_bool installEventHook = false;
+DWORD dwThreadID = 0;
 
 struct MouseEventContext {
     public:
@@ -33,7 +39,7 @@ void onMainThread(Napi::Env env, Napi::Function function, MouseEventContext *pMo
         // Isolate mouse movement, as it's more CPU intensive
         if (wParam == WM_MOUSEMOVE) {
             // Is mouse movement
-            if(captureMouseMove) {
+            if(captureMouseMove.load()) {
                 name = "mousemove";
             }
         } else {
@@ -82,7 +88,7 @@ void onMainThread(Napi::Env env, Napi::Function function, MouseEventContext *pMo
 LRESULT CALLBACK HookCallback(int nCode, WPARAM wParam, LPARAM lParam) {
 
     // If not WM_MOUSEMOVE or WM_MOUSEMOVE has been requested, process event
-    if(!(wParam == WM_MOUSEMOVE && !captureMouseMove)) {
+    if(!(wParam == WM_MOUSEMOVE && !captureMouseMove.load())) {
         // Prepare data to be processed
         MSLLHOOKSTRUCT *data = (MSLLHOOKSTRUCT *)lParam;
         auto pMouseEvent = new MouseEventContext();
@@ -102,17 +108,24 @@ LRESULT CALLBACK HookCallback(int nCode, WPARAM wParam, LPARAM lParam) {
 
 DWORD WINAPI MouseHookThread(LPVOID lpParam) {
     MSG msg;
-    _hook = SetWindowsHookEx(WH_MOUSE_LL, HookCallback, NULL, 0);
+    HHOOK hook = installEventHook.load() ? SetWindowsHookEx(WH_MOUSE_LL, HookCallback, NULL, 0) : NULL;
 
-    while (GetMessage(&msg, NULL, 0, 0) > 0) { }
+    while (GetMessage(&msg, NULL, 0, 0) > 0) {
+        if (msg.message != WM_USER) continue;
+        if (!installEventHook.load() && hook != NULL) {
+            if (!UnhookWindowsHookEx(hook)) break;
+            hook = NULL;
+        } else if (installEventHook.load() && hook == NULL) {
+            hook = SetWindowsHookEx(WH_MOUSE_LL, HookCallback, NULL, 0);
+            if (hook == NULL) break;
+        }
+    }
 
     _tsfn.Release();
-    return 0;
+    return GetLastError();
 }
 
 Napi::Boolean createMouseHook(const Napi::CallbackInfo &info) {
-    DWORD dwThreadID;
-
     _hThread = CreateThread(NULL, 0, MouseHookThread, NULL, CREATE_SUSPENDED, &dwThreadID);
     _tsfn = Napi::ThreadSafeFunction::New(
         info.Env(),
@@ -131,12 +144,43 @@ void enableMouseMove(const Napi::CallbackInfo &info) {
     captureMouseMove = true;
 }
 
+void disableMouseMove(const Napi::CallbackInfo &info) {
+    captureMouseMove = false;
+}
+
+Napi::Boolean pauseMouseEvents(const Napi::CallbackInfo &info) {
+    BOOL bDidPost = FALSE;
+    if (dwThreadID != 0) {
+        installEventHook = false;
+        bDidPost = PostThreadMessageW(dwThreadID, WM_USER, NULL, NULL);
+    }
+    return Napi::Boolean::New(info.Env(), bDidPost);
+}
+
+Napi::Boolean resumeMouseEvents(const Napi::CallbackInfo &info) {
+    BOOL bDidPost = FALSE;
+    if (dwThreadID != 0) {
+        installEventHook = true;
+        bDidPost = PostThreadMessageW(dwThreadID, WM_USER, NULL, NULL);
+    }
+    return Napi::Boolean::New(info.Env(), bDidPost);
+}
+
 Napi::Object Init(Napi::Env env, Napi::Object exports) {
     exports.Set(Napi::String::New(env, "createMouseHook"),
                 Napi::Function::New(env, createMouseHook));
 
     exports.Set(Napi::String::New(env, "enableMouseMove"),
-                Napi::Function::New(env, enableMouseMove));            
+                Napi::Function::New(env, enableMouseMove));
+
+    exports.Set(Napi::String::New(env, "disableMouseMove"),
+                Napi::Function::New(env, disableMouseMove));
+
+    exports.Set(Napi::String::New(env, "pauseMouseEvents"),
+                Napi::Function::New(env, pauseMouseEvents));
+
+    exports.Set(Napi::String::New(env, "resumeMouseEvents"),
+                Napi::Function::New(env, resumeMouseEvents));
 
     return exports;
 }

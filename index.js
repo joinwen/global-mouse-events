@@ -34,6 +34,9 @@ class MouseEvents extends EventEmitter {
                     }
                     this.emit(event, payload);
                 });
+                if (createdListener) {
+                    this.resumeMouseEvents();
+                }
             } else {
                 return;
             }
@@ -46,8 +49,18 @@ class MouseEvents extends EventEmitter {
                 return;
 
             registeredEvents = registeredEvents.filter(x => x !== event);
+            if (event === "mousemove") {
+                addon.disableMouseMove();
+            }
         });
+    }
 
+    pauseMouseEvents() {
+        return addon.pauseMouseEvents();
+    }
+
+    resumeMouseEvents() {
+        return addon.resumeMouseEvents();
     }
 }
 
