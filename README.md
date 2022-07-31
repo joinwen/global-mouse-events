@@ -52,3 +52,9 @@ mouseEvents.on("mousewheel", event => {
   console.log(event); // { x: 2962, y: 483, delta: -1, axis: 0 }
 });
 ```
+
+### Available functions
+
+- **`pauseMouseEvents`** — *Pauses all mouse events.*
+- **`resumeMouseEvents`** — *Resumes all mouse events.*
+- **`getPaused`** — *Returns the paused state as a boolean.*
