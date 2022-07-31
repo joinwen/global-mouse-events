@@ -108,23 +108,21 @@ LRESULT CALLBACK HookCallback(int nCode, WPARAM wParam, LPARAM lParam) {
 
 DWORD WINAPI MouseHookThread(LPVOID lpParam) {
     MSG msg;
-    HHOOK _hook = installEventHook.load() ? SetWindowsHookEx(WH_MOUSE_LL, HookCallback, NULL, 0) : NULL;
+    HHOOK hook = installEventHook.load() ? SetWindowsHookEx(WH_MOUSE_LL, HookCallback, NULL, 0) : NULL;
 
     while (GetMessage(&msg, NULL, 0, 0) > 0) {
         if (msg.message != WM_USER) continue;
-        if (!installEventHook.load() && _hook != NULL) {
-            if (!UnhookWindowsHookEx(_hook)) {
-                _hook = NULL;
-                break;
-            }
-            _hook = NULL;
-        } else if (installEventHook.load() && _hook == NULL) {
-            _hook = SetWindowsHookEx(WH_MOUSE_LL, HookCallback, NULL, 0);
+        if (!installEventHook.load() && hook != NULL) {
+            if (!UnhookWindowsHookEx(hook)) break;
+            hook = NULL;
+        } else if (installEventHook.load() && hook == NULL) {
+            hook = SetWindowsHookEx(WH_MOUSE_LL, HookCallback, NULL, 0);
+            if (hook == NULL) break;
         }
     }
 
     _tsfn.Release();
-    return 0;
+    return GetLastError();
 }
 
 Napi::Boolean createMouseHook(const Napi::CallbackInfo &info) {
